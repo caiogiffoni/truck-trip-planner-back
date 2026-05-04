@@ -128,3 +128,20 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 ORS_API_KEY = os.environ.get('ORS_API_KEY', '')
 URL_BASE = os.environ.get('URL_BASE', '')
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'trips': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+}
