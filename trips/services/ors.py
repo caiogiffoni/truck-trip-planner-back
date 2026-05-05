@@ -8,7 +8,7 @@ Provides geocoding (city/state → lat/lng) and HGV truck routing
 import logging
 
 import requests
-from config.settings import URL_BASE, ORS_API_KEY
+from config.settings import URL_BASE, API_KEY
 
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ def geocode(location: str) -> tuple[float, float]:
     logger.debug(f"Geocoding location: {location}")
     resp = requests.get(
         f"{URL_BASE}/geocode/search",
-        params={"api_key": ORS_API_KEY, "text": location, "size": 1},
+        params={"api_key": API_KEY, "text": location, "size": 1},
         timeout=10,
     )
     resp.raise_for_status()
@@ -29,7 +29,7 @@ def geocode(location: str) -> tuple[float, float]:
     if not features:
         logger.warning(f"No geocoding results for: {location}")
         raise ValueError(f"Could not geocode location: '{location}'")
-    # ORS returns [longitude, latitude]
+    # returns [longitude, latitude]
     lng, lat = features[0]["geometry"]["coordinates"]
     logger.debug(f"Geocoded '{location}' → lat={lat:.6f}, lng={lng:.6f}")
     return lat, lng
@@ -49,14 +49,14 @@ def get_route_leg(
         {"distance_miles": float, "duration_hours": float}
     """
     logger.debug(f"Requesting route leg: {origin} - {destination}")
-    # ORS directions expect [longitude, latitude] order
+    # directions expect [longitude, latitude] order
     coords = [
         [origin[1], origin[0]],
         [destination[1], destination[0]],
     ]
     resp = requests.post(
         f"{URL_BASE}/v2/directions/driving-hgv/json",
-        headers={"Authorization": ORS_API_KEY, "Content-Type": "application/json"},
+        headers={"Authorization": API_KEY, "Content-Type": "application/json"},
         json={"coordinates": coords},
         timeout=15,
     )

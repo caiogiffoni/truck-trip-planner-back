@@ -126,7 +126,7 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-ORS_API_KEY = os.environ.get('ORS_API_KEY', '')
+API_KEY = os.environ.get('API_KEY', '')
 URL_BASE = os.environ.get('URL_BASE', '')
 
 LOGGING = {
