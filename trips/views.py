@@ -18,26 +18,6 @@ def health_check(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
-def route(request):
-    try:
-        payload = RouteRequest.model_validate_json(request.body)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return JsonResponse({"error": "Invalid JSON body"}, status=400)
-    except ValidationError as exc:
-        errors = {e["loc"][0]: e["msg"] for e in exc.errors()}
-        return JsonResponse({"error": "Validation failed", "details": errors}, status=400)
-
-    try:
-        route_data = plan_route(payload)
-        return JsonResponse({"route": route_data})
-    except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=400)
-    except Exception as exc:
-        return JsonResponse({"error": f"Routing failed: {exc}"}, status=502)
-
-
-@csrf_exempt
-@require_http_methods(["POST"])
 def plan(request):
     try:
         payload = RouteRequest.model_validate_json(request.body)
