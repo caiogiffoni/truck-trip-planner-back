@@ -4,7 +4,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from trips.services.ors import plan_trip
+from trips.services.ors import plan_route
 
 
 @require_http_methods(["GET"])
@@ -26,13 +26,15 @@ def route(request):
         return JsonResponse({"error": f"Missing fields: {', '.join(missing)}"}, status=400)
 
     try:
-        result = plan_trip(
+        route_data = plan_route(
             current_location=data["current_location"],
             pickup_location=data["pickup_location"],
             dropoff_location=data["dropoff_location"],
         )
-        result["current_cycle_used"] = data["current_cycle_used"]
-        return JsonResponse(result)
+        return JsonResponse({
+            "route": route_data,
+            "current_cycle_used": data["current_cycle_used"],
+        })
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=400)
     except Exception as exc:
