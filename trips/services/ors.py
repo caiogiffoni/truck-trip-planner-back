@@ -9,6 +9,7 @@ import logging
 
 import requests
 from config.settings import URL_BASE, API_KEY
+from trips.models.route_request import RouteRequest
 
 
 logger = logging.getLogger(__name__)
@@ -70,11 +71,7 @@ def get_route_leg(
     return {"miles": miles, "drive_hrs": drive_hrs, "polyline": polyline}
 
 
-def plan_route(
-    current_location: str,
-    pickup_location: str,
-    dropoff_location: str,
-) -> dict:
+def plan_route(payload: RouteRequest) -> dict:
     """
     Geocode all three stops and compute per-leg route metrics.
 
@@ -89,6 +86,9 @@ def plan_route(
             ],
         }
     """
+    current_location=payload.current_location,
+    pickup_location=payload.pickup_location,
+    dropoff_location=payload.dropoff_location
     logger.info(
         f"Planning trip: {current_location} → {pickup_location} → {dropoff_location}"
     )
