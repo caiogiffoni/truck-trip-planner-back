@@ -1,10 +1,8 @@
 """
 OpenRouteService integration.
 
-Provides geocoding (address → [lng, lat]) and HGV truck routing:
-- distance in miles per leg
-- drive time in hours per leg
-- GeoJSON polyline for the full route
+Provides geocoding (city/state → lat/lng) and HGV truck routing
+(distance in miles, duration in hours) per leg.
 """
 
 import logging
@@ -37,32 +35,25 @@ def geocode(location: str) -> tuple[float, float]:
     return lat, lng
 
 
-def get_route(
-    stop_names: list[str],
-    coords: list[tuple[float, float]],
+def get_route_leg(
+    origin: tuple[float, float], destination: tuple[float, float]
 ) -> dict:
     """
-    Request a multi-waypoint HGV route from ORS.
+    Request driving-hgv (heavy goods vehicle) directions between two points.
 
     Args:
-        stop_names: human-readable names for each waypoint
-        coords: list of (latitude, longitude) per waypoint
+        origin: (latitude, longitude)
+        destination: (latitude, longitude)
 
-    Returns route dict matching the spec:
-    {
-        "total_miles": float,
-        "total_drive_time_hrs": float,
-        "polyline": [[lng, lat], ...],
-        "legs": [
-            {"from": str, "to": str, "miles": float, "drive_hrs": float},
-            ...
-        ]
-    }
+    Returns:
+        {"distance_miles": float, "duration_hours": float}
     """
-    # ORS expects [longitude, latitude]
-    ors_coords = [[lat_lng[1], lat_lng[0]] for lat_lng in coords]
-
-    logger.info(f"Requesting HGV route for {len(coords)} waypoints")
+    logger.debug(f"Requesting route leg: {origin} - {destination}")
+    # directions expect [longitude, latitude] order
+    coords = [
+        [origin[1], origin[0]],
+        [destination[1], destination[0]],
+    ]
     resp = requests.post(
         f"{URL_BASE}/v2/directions/driving-hgv/json",
         headers={"Authorization": API_KEY, "Content-Type": "application/json"},
@@ -70,37 +61,11 @@ def get_route(
         timeout=15,
     )
     resp.raise_for_status()
-
-    data = resp.json()
-    route = data["routes"][0]
-    summary = route["summary"]
-    segments = route.get("legs", [])
-    polyline = route["geometry"]["coordinates"]  # [[lng, lat], ...]
-
-    legs = []
-    for i, seg in enumerate(segments):
-        seg_summary = seg["summary"]
-        legs.append({
-            "from": stop_names[i],
-            "to": stop_names[i + 1],
-            "miles": round(seg_summary["distance"] / METERS_PER_MILE, 2),
-            "drive_hrs": round(seg_summary["duration"] / 3600, 2),
-        })
-        logger.debug(
-            f"Leg {i + 1}: {stop_names[i]} → {stop_names[i+1]} "
-            f"— {legs[-1]['miles']} mi, {legs[-1]['drive_hrs']} hrs"
-        )
-
-    total_miles = round(summary["distance"] / METERS_PER_MILE, 2)
-    total_hrs = round(summary["duration"] / 3600, 2)
-    logger.info(f"Route total: {total_miles} miles, {total_hrs} hrs")
-
-    return {
-        "total_miles": total_miles,
-        "total_drive_time_hrs": total_hrs,
-        "polyline": polyline,
-        "legs": legs,
-    }
+    summary = resp.json()["routes"][0]["summary"]
+    distance_miles = round(summary["distance"] / METERS_PER_MILE, 2)
+    duration_hours = round(summary["duration"] / 3600, 2)
+    logger.debug(f"Leg result: {distance_miles:.2f} miles, {duration_hours:.2f} hours")
+    return {"distance_miles": distance_miles, "duration_hours": duration_hours}
 
 
 def plan_route(
@@ -109,10 +74,42 @@ def plan_route(
     dropoff_location: str,
 ) -> dict:
     """
-    Geocode all three stops and return the full route object.
-    """
-    stop_names = [current_location, pickup_location, dropoff_location]
-    logger.info(f"Planning route: {' → '.join(stop_names)}")
+    Geocode all three stops and compute per-leg route metrics.
 
-    coords = [geocode(name) for name in stop_names]
-    return get_route(stop_names, coords)
+    Returns:
+        {
+            "legs": [
+                {"from": str, "to": str, "distance_miles": float, "duration_hours": float},
+                ...
+            ],
+            "total_distance_miles": float,
+            "total_duration_hours": float,
+        }
+    """
+    logger.info(
+        f"Planning trip: {current_location} → {pickup_location} → {dropoff_location}"
+    )
+    stops = [current_location, pickup_location, dropoff_location]
+    coords = [geocode(stop) for stop in stops]
+
+    legs = []
+    for i in range(len(stops) - 1):
+        leg_data = get_route_leg(coords[i], coords[i + 1])
+        legs.append(
+            {
+                "from": stops[i],
+                "to": stops[i + 1],
+                "distance_miles": leg_data["distance_miles"],
+                "duration_hours": leg_data["duration_hours"],
+            }
+        )
+
+    total_miles = round(sum(l["distance_miles"] for l in legs), 2)
+    total_hours = round(sum(l["duration_hours"] for l in legs), 2)
+
+    logger.info(f"Trip total: {total_miles:.2f} miles, {total_hours:.2f} hours")
+    return {
+        "legs": legs,
+        "total_distance_miles": total_miles,
+        "total_duration_hours": total_hours,
+    }
