@@ -31,10 +31,7 @@ def route(request):
             pickup_location=data["pickup_location"],
             dropoff_location=data["dropoff_location"],
         )
-        return JsonResponse({
-            "route": route_data,
-            "current_cycle_used": data["current_cycle_used"],
-        })
+        return JsonResponse({"route": route_data})
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=400)
     except Exception as exc:
