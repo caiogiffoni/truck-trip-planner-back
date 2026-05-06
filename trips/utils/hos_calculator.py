@@ -555,7 +555,7 @@ class State:
             # Before 05:00 (e.g. slot 3 = 01:30): need 10 - 3 = 7 slots
             slots_needed = NO_DRIVE_BEFORE_SLOT - sod
 
-        remark = "Curfew rest (11pm–5am)"
+        remark = "Curfew rest (11pm-5am)"
         self.record_stop("rest", remark)
         for _ in range(slots_needed):
             self.push(Status.OFF_DUTY, remark=remark)
@@ -769,6 +769,7 @@ def calculate_trip(
     pickup_location: str,
     dropoff_location: str,
     current_cycle_used: float = 0.0,
+    has_curfew: bool = True,
 ) -> TripResult:
     """
     Main entry point. Called by the Django view with routing API data.
@@ -797,7 +798,7 @@ def calculate_trip(
           - violations: any HOS rule violations detected
     """
     raw   = build_raw_segments(legs, pickup_location, dropoff_location)
-    state = State(current_cycle_used=current_cycle_used)
+    state = State(current_cycle_used=current_cycle_used, has_curfew=has_curfew)
 
     # Record the trip start as a map marker
     state.record_stop("start", f"Start at {legs[0]['from']}", leg_index=0)

@@ -5,6 +5,7 @@ class RouteRequest(BaseModel):
     pickup_location: str
     dropoff_location: str
     current_cycle_used: float
+    has_curfew: bool = True
 
     @field_validator("current_cycle_used")
     @classmethod

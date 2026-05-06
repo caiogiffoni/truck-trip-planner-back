@@ -37,9 +37,10 @@ def plan(request):
     try:
         trip_result = calculate_trip(
             legs=route_data["legs"],
-            pickup_location=payload.pickup_location,
-            dropoff_location=payload.dropoff_location,
+            pickup_location=payload.pickup_location.capitalize(),
+            dropoff_location=payload.dropoff_location.capitalize(),
             current_cycle_used=payload.current_cycle_used,
+            has_curfew=payload.has_curfew,
         )
     except Exception as exc:
         return JsonResponse({"error": f"HOS calculation failed: {exc}"}, status=500)
