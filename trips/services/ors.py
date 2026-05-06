@@ -86,9 +86,9 @@ def plan_route(payload: RouteRequest) -> dict:
             ],
         }
     """
-    current_location=payload.current_location,
-    pickup_location=payload.pickup_location,
-    dropoff_location=payload.dropoff_location
+    current_location=payload.current_location.capitalize()
+    pickup_location=payload.pickup_location.capitalize()
+    dropoff_location=payload.dropoff_location.capitalize()
     logger.info(
         f"Planning trip: {current_location} → {pickup_location} → {dropoff_location}"
     )
