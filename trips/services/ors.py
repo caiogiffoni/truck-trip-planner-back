@@ -130,6 +130,46 @@ def get_route_leg(
     return {"miles": miles, "drive_hrs": drive_hrs, "polyline": polyline}
 
 
+def enrich_trip_stops(
+    trip_dict: dict,
+    polyline: list,
+    named_coords: dict,
+    named_locations: dict,
+) -> None:
+    """
+    Mutates trip_dict in-place: adds coords/location to every stop,
+    then injects reverse-geocoded city names into 30-min break remarks.
+
+    named_coords / named_locations must contain keys "start", "pickup", "dropoff".
+    Mid-route stops (fuel, break, rest) are interpolated along the polyline.
+    """
+    for stop in trip_dict["stops"]:
+        if stop["type"] in named_coords:
+            stop["coords"] = named_coords[stop["type"]]
+            stop["location"] = named_locations[stop["type"]]
+        else:
+            coords = interpolate_along_polyline(polyline, stop["cumulative_miles"])
+            stop["coords"] = coords
+            if coords:
+                stop["location"] = reverse_geocode(coords[0], coords[1])
+            else:
+                stop["location"] = ""
+
+    break_location_map = {}
+    for stop in trip_dict["stops"]:
+        if stop["type"] == "break":
+            hh, mm = map(int, stop["time_start"].split(":"))
+            start_float = round(hh + mm / 60.0, 4)
+            break_location_map[(stop["day"], start_float)] = stop.get("location", "")
+
+    for day in trip_dict["days"]:
+        for event in day["events"]:
+            if event["status"] == "on_duty" and event["remark"] == "30-min break":
+                location = break_location_map.get((day["day"], event["start"]), "")
+                if location:
+                    event["remark"] = f"30-min break – {location}"
+
+
 def plan_route(payload: RouteRequest) -> dict:
     """
     Geocode all three stops and compute per-leg route metrics.

@@ -5,8 +5,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from pydantic import ValidationError
 
-from trips.services.ors import plan_route
-from trips.utils.hos_calculator import calculate_trip, enrich_trip_stops
+from trips.services.ors import plan_route, enrich_trip_stops
+from trips.utils.hos_calculator import calculate_trip
 from .models.route_request import RouteRequest
 
 
