@@ -6,7 +6,7 @@ from django.views.decorators.http import require_http_methods
 from pydantic import ValidationError
 
 from trips.services.ors import plan_route
-from trips.utils.hos_calculator import calculate_trip
+from trips.utils.hos_calculator import calculate_trip, enrich_trip_stops
 from .models.route_request import RouteRequest
 
 
@@ -45,7 +45,24 @@ def plan(request):
     except Exception as exc:
         return JsonResponse({"error": f"HOS calculation failed: {exc}"}, status=500)
 
+    waypoints = route_data["waypoints"]
+    trip_dict = trip_result.to_dict()
+    enrich_trip_stops(
+        trip_dict,
+        polyline=route_data["polyline"],
+        named_coords={
+            "start":   waypoints[0],
+            "pickup":  waypoints[1],
+            "dropoff": waypoints[2],
+        },
+        named_locations={
+            "start":   payload.current_location.capitalize(),
+            "pickup":  payload.pickup_location.capitalize(),
+            "dropoff": payload.dropoff_location.capitalize(),
+        },
+    )
+
     return JsonResponse({
         "route": route_data,
-        **trip_result.to_dict(),
+        **trip_dict,
     })

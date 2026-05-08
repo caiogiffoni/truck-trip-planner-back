@@ -147,12 +147,14 @@ class Stop:
     A notable event shown as a marker on the route map.
     stop_type: "start" | "pickup" | "dropoff" | "fuel" | "rest"
     """
-    stop_type:   str
-    remark:      str
-    slot_index:  int
-    day:         int
-    time_of_day: str    # "HH:MM" format
-    leg_index:   int = 0
+    stop_type:        str
+    remark:           str
+    slot_index:       int
+    day:              int
+    time_of_day:      str    # "HH:MM" start time
+    leg_index:        int   = 0
+    cumulative_miles: float = 0.0
+    end_time_of_day:  str   = ""  # "HH:MM" end time — populated after rest slots are pushed
 
 
 @dataclass
@@ -236,18 +238,39 @@ class TripResult:
     violations:  List[str]   # HOS rule violations detected during scheduling
 
     def to_dict(self) -> dict:
+        # Convert stops to dicts first
+        stop_dicts = [
+            {
+                "type":             s.stop_type,
+                "remark":           s.remark,
+                "day":              s.day,
+                "time_start":       s.time_of_day,
+                "time_end":         s.end_time_of_day,
+                "leg_index":        s.leg_index,
+                "cumulative_miles": round(s.cumulative_miles, 2),
+            }
+            for s in self.stops
+        ]
+
+        # Merge consecutive rest stops only if they share the same location
+        # (i.e. cumulative_miles is identical — the driver hasn't moved between them).
+        merged: list[dict] = []
+        for stop in stop_dicts:
+            if (
+                stop["type"] == "rest"
+                and merged
+                and merged[-1]["type"] == "rest"
+                and merged[-1]["cumulative_miles"] == stop["cumulative_miles"]
+            ):
+                prev = merged[-1]
+                prev["time_end"] = stop["time_end"]
+                prev["remark"]   = prev["remark"] + " + " + stop["remark"]
+            else:
+                merged.append(stop)
+
         return {
             "days":        [d.to_dict() for d in self.days],
-            "stops":       [
-                {
-                    "type":      s.stop_type,
-                    "remark":    s.remark,
-                    "day":       s.day,
-                    "time":      s.time_of_day,
-                    "leg_index": s.leg_index,
-                }
-                for s in self.stops
-            ],
+            "stops":       merged,
             "total_hours": round(self.total_slots * SLOT, 2),
             "violations":  self.violations,
         }
@@ -494,6 +517,7 @@ class State:
         h_of_day = abs_hour % 24
         hh       = int(h_of_day)
         mm       = int((h_of_day - hh) * 60)
+        cumulative_miles = sum(s.miles for s in self.timeline)
         self.stops.append(Stop(
             stop_type=stop_type,
             remark=remark,
@@ -501,6 +525,7 @@ class State:
             day=day,
             time_of_day=f"{hh:02d}:{mm:02d}",
             leg_index=leg_index,
+            cumulative_miles=cumulative_miles,
         ))
 
     # ── Shift / rest helpers ─────────────────────────────────────────────────
@@ -525,6 +550,16 @@ class State:
         self.window_start      = self.cursor
         self.shift_active      = False
 
+    def _stamp_stop_end_time(self):
+        """Write the current cursor position as the end time on the last recorded stop."""
+        if not self.stops:
+            return
+        abs_hour = self.cursor * SLOT
+        h_of_day = abs_hour % 24
+        hh = int(h_of_day)
+        mm = int((h_of_day - hh) * 60)
+        self.stops[-1].end_time_of_day = f"{hh:02d}:{mm:02d}"
+
     def insert_rest(self, reason: str = "", curfew: bool = False):
         """
         Insert a 10-hr off-duty rest (20 slots).
@@ -535,6 +570,7 @@ class State:
         self.record_stop("rest", remark)
         for _ in range(REST_SLOTS):
             self.push(Status.OFF_DUTY, remark=remark)
+        self._stamp_stop_end_time()
         self._reset_daily_clocks()
 
     def insert_curfew_rest(self):
@@ -559,6 +595,7 @@ class State:
         self.record_stop("rest", remark)
         for _ in range(slots_needed):
             self.push(Status.OFF_DUTY, remark=remark)
+        self._stamp_stop_end_time()
 
     def insert_34hr_restart(self, reason: str = "70-hr cycle limit"):
         """
@@ -570,6 +607,7 @@ class State:
         self.record_stop("rest", remark)
         for _ in range(RESTART_SLOTS):
             self.push(Status.OFF_DUTY, remark=remark)
+        self._stamp_stop_end_time()
         self._reset_daily_clocks()
         self.cycle_slots = 0   # Clock 3 reset
 
@@ -695,7 +733,9 @@ def schedule_drive_segment(state: State, seg: RawSegment):
         # Note: if the driver had a pickup/fuel stop earlier, the counter was
         # already reset — so this block may never trigger during that shift.
         if state.needs_break():
+            state.record_stop("break", "30-min break", seg.leg_index)
             state.push(Status.ON_DUTY, remark="30-min break")
+            state._stamp_stop_end_time()
             state.cycle_slots   += 1    # Clock 3 still advances during a break
             state.break_counter  = 0    # reset — on_duty always clears the counter
             continue   # do NOT decrement remaining (no drive slot was used)
@@ -826,3 +866,45 @@ def calculate_trip(
         total_slots=state.cursor,
         violations=state.violations,
     )
+
+
+def enrich_trip_stops(
+    trip_dict: dict,
+    polyline: list,
+    named_coords: dict,
+    named_locations: dict,
+) -> None:
+    """
+    Mutates trip_dict in-place: resolves coords/location for every stop,
+    then injects reverse-geocoded city names into 30-min break remarks.
+
+    named_coords / named_locations must contain keys "start", "pickup", "dropoff".
+    Mid-route stops (fuel, break, rest) are interpolated along the polyline.
+    """
+    from trips.services.ors import interpolate_along_polyline, reverse_geocode
+
+    for stop in trip_dict["stops"]:
+        if stop["type"] in named_coords:
+            stop["coords"] = named_coords[stop["type"]]
+            stop["location"] = named_locations[stop["type"]]
+        else:
+            coords = interpolate_along_polyline(polyline, stop["cumulative_miles"])
+            stop["coords"] = coords
+            if coords:
+                stop["location"] = reverse_geocode(coords[0], coords[1])
+            else:
+                stop["location"] = ""
+
+    break_location_map = {}
+    for stop in trip_dict["stops"]:
+        if stop["type"] == "break":
+            hh, mm = map(int, stop["time_start"].split(":"))
+            start_float = round(hh + mm / 60.0, 4)
+            break_location_map[(stop["day"], start_float)] = stop.get("location", "")
+
+    for day in trip_dict["days"]:
+        for event in day["events"]:
+            if event["status"] == "on_duty" and event["remark"] == "30-min break":
+                location = break_location_map.get((day["day"], event["start"]), "")
+                if location:
+                    event["remark"] = f"30-min break – {location}"

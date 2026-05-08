@@ -6,6 +6,7 @@ Provides geocoding (city/state → lat/lng) and HGV truck routing
 """
 
 import logging
+import math
 
 import requests
 from config.settings import URL_BASE, API_KEY
@@ -15,6 +16,64 @@ from trips.models.route_request import RouteRequest
 logger = logging.getLogger(__name__)
 
 METERS_PER_MILE = 1609.344
+EARTH_RADIUS_MILES = 3958.8
+
+
+def _haversine_miles(p1: list, p2: list) -> float:
+    """Great-circle distance in miles between two [lng, lat] points."""
+    lng1, lat1 = math.radians(p1[0]), math.radians(p1[1])
+    lng2, lat2 = math.radians(p2[0]), math.radians(p2[1])
+    dlat = lat2 - lat1
+    dlng = lng2 - lng1
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlng / 2) ** 2
+    return EARTH_RADIUS_MILES * 2 * math.asin(math.sqrt(a))
+
+
+def interpolate_along_polyline(polyline: list, target_miles: float) -> list:
+    """
+    Return the [lng, lat] coordinate at target_miles along a polyline.
+
+    Walks segment by segment accumulating Haversine distance until the
+    target is reached, then linearly interpolates within that segment.
+    Returns the first point if target <= 0, last point if target exceeds
+    the total polyline length.
+    """
+    if not polyline:
+        return None
+    if target_miles <= 0:
+        return polyline[0]
+
+    cumulative = 0.0
+    for i in range(len(polyline) - 1):
+        p1, p2 = polyline[i], polyline[i + 1]
+        seg_miles = _haversine_miles(p1, p2)
+        if cumulative + seg_miles >= target_miles:
+            t = (target_miles - cumulative) / seg_miles if seg_miles > 0 else 0.0
+            lng = p1[0] + t * (p2[0] - p1[0])
+            lat = p1[1] + t * (p2[1] - p1[1])
+            return [round(lng, 6), round(lat, 6)]
+        cumulative += seg_miles
+
+    return polyline[-1]
+
+
+def reverse_geocode(lng: float, lat: float) -> str:
+    """Return a 'City, State' label for a [lng, lat] coordinate."""
+    resp = requests.get(
+        f"{URL_BASE}/geocode/reverse",
+        params={"api_key": API_KEY, "point.lon": lng, "point.lat": lat, "size": 1},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    features = resp.json().get("features", [])
+    if not features:
+        return ""
+    props = features[0].get("properties", {})
+    locality = props.get("locality") or props.get("name") or ""
+    region = props.get("region_a") or props.get("region") or ""
+    if locality and region:
+        return f"{locality}, {region}"
+    return props.get("label", "")
 
 
 def geocode(location: str) -> tuple[float, float]:
@@ -93,12 +152,14 @@ def plan_route(payload: RouteRequest) -> dict:
         f"Planning trip: {current_location} → {pickup_location} → {dropoff_location}"
     )
     stops = [current_location, pickup_location, dropoff_location]
-    coords = [geocode(stop) for stop in stops]
+    # geocode returns (lat, lng) — store as [lng, lat] for GeoJSON consistency
+    raw_coords = [geocode(stop) for stop in stops]
+    waypoint_coords = [[lng, lat] for lat, lng in raw_coords]
 
     legs = []
     full_polyline = []
     for i in range(len(stops) - 1):
-        leg_data = get_route_leg(coords[i], coords[i + 1])
+        leg_data = get_route_leg(raw_coords[i], raw_coords[i + 1])
         legs.append(
             {
                 "from": stops[i],
@@ -121,5 +182,6 @@ def plan_route(payload: RouteRequest) -> dict:
         "total_miles": total_miles,
         "total_drive_time_hrs": total_drive_time_hrs,
         "polyline": full_polyline,
+        "waypoints": waypoint_coords,   # [start, pickup, dropoff] as [lng, lat]
         "legs": legs,
     }
