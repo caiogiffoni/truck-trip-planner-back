@@ -7,6 +7,17 @@ class RouteRequest(BaseModel):
     current_cycle_used: float
     has_curfew: bool = True
 
+    @field_validator("current_location", "pickup_location", "dropoff_location")
+    @classmethod
+    def sanitize_location(cls, v: str) -> str:
+        v = v.strip()
+        v = v.replace("\t", " ").replace("\n", " ")
+        v = v.replace("'", "")
+        v = v.replace("/", ", ")
+        while ", , " in v:
+            v = v.replace(", , ", ", ")
+        return v
+
     @field_validator("current_cycle_used")
     @classmethod
     def cycle_used_non_negative(cls, v: float) -> float:
