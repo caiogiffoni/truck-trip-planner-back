@@ -778,24 +778,19 @@ def build_day_sheets(timeline: List[Slot]) -> List[DaySheet]:
         day_end   = day_start + 48
 
         slots: List[Slot] = []
-        has_work = False
 
         for i in range(day_start, day_end):
             if i in slot_map:
-                s = slot_map[i]
-                slots.append(s)
-                if s.status != Status.OFF_DUTY:
-                    has_work = True
+                slots.append(slot_map[i])
             else:
                 # Gap in the timeline — fill with off-duty
                 slots.append(Slot(index=i, status=Status.OFF_DUTY, remark="Off duty"))
 
-        if has_work or day_idx == 0:
-            days.append(DaySheet(
-                day=day_idx + 1,
-                date_offset_days=day_idx,
-                slots=slots,
-            ))
+        days.append(DaySheet(
+            day=day_idx + 1,
+            date_offset_days=day_idx,
+            slots=slots,
+        ))
 
     return days
 
