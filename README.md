@@ -12,6 +12,8 @@ schedule, and returns structured daily log data for the frontend to render.
 | Framework | Django 5.2 + Django REST Framework |
 | Validation | Pydantic v2 |
 | Routing / Geocoding | OpenRouteService API |
+| Server | Gunicorn |
+| Rate limiting | django-ratelimit |
 | Package manager | uv |
 | Testing | pytest |
 
@@ -220,16 +222,10 @@ URL_BASE=https://api.openrouteservice.org
 CORS_ALLOWED_ORIGINS=http://localhost:5173
 ```
 
-### 3. Run migrations
+### 3. Start the dev server
 
 ```bash
-uv run python main.py migrate
-```
-
-### 4. Start the dev server
-
-```bash
-uv run python main.py runserver
+uv run python manage.py runserver
 ```
 
 The API is now available at `http://localhost:8000`.
@@ -252,7 +248,27 @@ uv run pytest trips/utils/test_hos_calculator.py -v
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SECRET_KEY` | Yes | Django secret key |
-| `DEBUG` | No | `True` for development |
+| `DEBUG` | No | `True` for development, `False` for production |
+| `ALLOWED_HOSTS` | No | Comma-separated allowed hostnames (default: `localhost,127.0.0.1`) |
 | `API_KEY` | Yes | OpenRouteService API key |
 | `URL_BASE` | Yes | ORS base URL (`https://api.openrouteservice.org`) |
 | `CORS_ALLOWED_ORIGINS` | No | Comma-separated allowed frontend origins (default: `http://localhost:5173`) |
+
+---
+
+## Deployment (Railway)
+
+The app is containerised. Railway will build from the `Dockerfile` and run Gunicorn.
+
+Set the following environment variables in the Railway dashboard:
+
+```
+SECRET_KEY=<long random string>
+DEBUG=False
+ALLOWED_HOSTS=<your-app>.up.railway.app
+API_KEY=<openrouteservice key>
+URL_BASE=https://api.openrouteservice.org
+CORS_ALLOWED_ORIGINS=https://<your-frontend>.vercel.app
+```
+
+No database or migrations are required — the API is stateless.
