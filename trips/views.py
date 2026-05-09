@@ -1,10 +1,13 @@
 import json
+import logging
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from ratelimit.decorators import ratelimit
 from pydantic import ValidationError
+
+logger = logging.getLogger(__name__)
 
 from trips.services.ors import plan_route, enrich_trip_stops
 from trips.utils.hos_calculator import calculate_trip
@@ -34,7 +37,8 @@ def plan(request):
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=400)
     except Exception as exc:
-        return JsonResponse({"error": f"Routing failed: {exc}"}, status=502)
+        logger.exception("Routing failed: %s", exc)
+        return JsonResponse({"error": "Routing failed. Please try again."}, status=502)
 
     try:
         trip_result = calculate_trip(
@@ -45,7 +49,8 @@ def plan(request):
             has_curfew=payload.has_curfew,
         )
     except Exception as exc:
-        return JsonResponse({"error": f"HOS calculation failed: {exc}"}, status=500)
+        logger.exception("HOS calculation failed: %s", exc)
+        return JsonResponse({"error": "Trip calculation failed. Please try again."}, status=500)
 
     waypoints = route_data["waypoints"]
     trip_dict = trip_result.to_dict()
