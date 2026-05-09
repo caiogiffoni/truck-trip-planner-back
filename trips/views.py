@@ -4,7 +4,6 @@ import logging
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-from ratelimit.decorators import ratelimit
 from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
@@ -20,7 +19,6 @@ def health_check(request):
     return JsonResponse({"status": "ok"})
 
 
-@ratelimit(key="ip", rate="10/m", method="POST", block=True)
 @csrf_exempt
 @require_http_methods(["POST"])
 def plan(request):
